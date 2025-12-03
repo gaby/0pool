@@ -74,12 +74,12 @@ func (p *Pool) Len() int {
 	return len(p.store)
 }
 
-// Get returns a conn form store or create one
+// Get returns a conn from store or create one
 func (p *Pool) Get() (any, error) {
 	p.mu.Lock()
 	if p.store == nil || p.closed {
 		p.mu.Unlock()
-		// pool aleardy destroyed, returns error
+		// pool already destroyed, returns error
 		return nil, ErrClosed
 	}
 	for {
@@ -177,7 +177,7 @@ func (p *Pool) Destroy() {
 	p.mu.Lock()
 	if p.store == nil || p.closed {
 		p.mu.Unlock()
-		// pool aleardy destroyed
+		// pool already destroyed
 		return
 	}
 	p.closed = true
