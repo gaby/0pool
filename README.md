@@ -1,25 +1,23 @@
 # pool
 
-common golang tcp connection pool, Get inspirations from sync.Pool
+Common Go connection pool inspired by `sync.Pool` but designed for long-lived resources (TCP clients, etc.).
 
-# Features
+## Features
 
-### Methods:
+### Methods
+- `Get`
+- `Put`
+- `Len`
+- `Destroy`
 
-* Get
-* Put
-* Len
-* Destroy
+### Attributes
+- `New`
+- `Ping`
+- `Close`
 
-### Attributes:
+> You should set `pool.New` and `pool.Close` functions when building a pool.
 
-* New
-* Ping
-* Close
-
-> you should set pool.New and pool.Close functions
-
-# Getting Started
+## Getting Started
 
 Install:
 
@@ -27,66 +25,81 @@ Install:
 go get -u github.com/go-baa/pool
 ```
 
+## Usage
 
-Usage:
-
-```
+### Basic TCP pool
+```go
 package main
 
 import (
-	"log"
-	"net"
+    "log"
+    "net"
 
-	"github.com/go-baa/pool"
+    "github.com/go-baa/pool"
 )
 
 func main() {
-	// create, initialize cap, max cap, create function
-	pl, err := pool.New(2, 10, func() interface{} {
-		addr, _ := net.ResolveTCPAddr("tcp4", "127.0.0.1:8003")
-		cli, err := net.DialTCP("tcp4", nil, addr)
-		if err != nil {
-			log.Fatalf("create client connection error: %v\n", err)
-		}
-		return cli
-	})
-	if err != nil {
-		log.Fatalf("create pool error: %v\n", err)
-	}
+    // create pool with initial capacity 2 and maximum 10
+    pl, err := pool.New(2, 10, func() any {
+        addr, _ := net.ResolveTCPAddr("tcp4", "127.0.0.1:8003")
+        conn, err := net.DialTCP("tcp4", nil, addr)
+        if err != nil {
+            log.Fatalf("create client connection error: %v", err)
+        }
+        return conn
+    })
+    if err != nil {
+        log.Fatalf("create pool error: %v", err)
+    }
 
-	pl.Ping = func(conn interface{}) bool {
-		// check connection status
-		return true
-	}
+    // validate a connection before handing it out
+    pl.Ping = func(conn any) bool {
+        // check connection status
+        return true
+    }
 
-	pl.Close = func(conn interface{}) {
-		// close connection
-		conn.(*net.TCPConn).Close()
-	}
+    // clean up a connection before dropping it
+    pl.Close = func(conn any) {
+        conn.(*net.TCPConn).Close()
+    }
 
-	// get conn from pool
-	c, err := pl.Get()
-	if err != nil {
-		log.Printf("get client error: %v\n", err)
-	}
-	conn := c.(*net.TCPConn)
-	conn.Write([]byte("PING"))
-	result := make([]byte, 4)
-	n, err := conn.Read(result)
-	if err != nil || n < 4 {
-		log.Printf("read data error: %v, size: %d\n", err, n)
-	}
-	log.Printf("got data: %s\n", result)
+    // get connection from pool
+    c, err := pl.Get()
+    if err != nil {
+        log.Fatalf("get client error: %v", err)
+    }
 
-	// put, back for reuse
-	pl.Put(conn)
+    conn := c.(*net.TCPConn)
+    if _, err = conn.Write([]byte("PING")); err != nil {
+        log.Fatalf("write error: %v", err)
+    }
 
-	// len
-	log.Printf("total connections: %d\n", pl.Len())
+    result := make([]byte, 4)
+    if _, err = conn.Read(result); err != nil {
+        log.Fatalf("read data error: %v", err)
+    }
+    log.Printf("got data: %s", result)
 
-	// destroy, close all connections
-	pl.Destroy()
+    // put back for reuse
+    pl.Put(conn)
+
+    // pool size (number of idle items)
+    log.Printf("idle connections: %d", pl.Len())
+
+    // destroy closes all idle connections and prevents further use
+    pl.Destroy()
 }
 ```
 
-you can find test server code in `pool_test.go`
+### Handling closed pools
+If a pool has been destroyed, `Get` returns `pool.ErrClosed` and nothing new is created (remember to import `errors`):
+
+```go
+import "errors"
+
+if _, err := pl.Get(); errors.Is(err, pool.ErrClosed) {
+    // handle closed pool
+}
+```
+
+You can find test server code in `pool_test.go`.
